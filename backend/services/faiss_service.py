@@ -5,7 +5,7 @@ FAISS Service
 - สร้าง Vector Index
 - ค้นหา Top-K Chunks ที่เกี่ยวข้อง
 """
-
+# Top-k คือการค้นหาสิ่งที่เกี่ยวข้องมากที่สุด k ชิ้น เช่น ถ้า k=3 ก็จะได้ผลลัพธ์ที่เกี่ยวข้องมากที่สุด 3 ชิ้น
 import faiss
 import numpy as np
 
@@ -21,17 +21,18 @@ def create_index(vectors):
 
     # จำนวนมิติของ Vector
     dimension = vectors.shape[1]  
-    # เช่น แปลงจาก vectors เป็น np ได้ (4,384) แล้วจะเอาค่า 384 มาใช้เป็นมิติของ Vector 
+    # เช่น แปลงจาก vectors เป็น np ได้ผลลัพธ์ (4,384)  
+    # แล้วจะเอาค่า 384 มาใช้เป็นมิติของ Vector ก็เลย กำหนด dimensionn = vectors.shape[1]  
 
-    # สร้าง Index แบบ L2 Distance 
+    # สร้าง Index แบบ L2 Distance จากค่า dimension
     index = faiss.IndexFlatL2(
         dimension
     ) #เสมือนการจองตำแหน่งในหน่วยความจำสำหรับ Vector ที่มีมิติ 384
 
     # เพิ่ม Vector ทั้งหมดเข้า Index
-    index.add(vectors)
+    index.add(vectors) # เหมือน record ที่เก็บ index กับ vector หน้าตาประมาณว่า {index: vector} เช่น {0: [0.1, 0.2, 0.3], 1: [0.4, 0.5, 0.6]}
 
-    return index
+    return index 
 
 # ฟังก์ชันค้นหา Top-K Vector ที่ใกล้ Query มากที่สุด
 def search_index(

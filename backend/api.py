@@ -4,7 +4,7 @@ FastAPI Entry Point
 - เรียกใช้ Service ต่าง ๆ
 - ส่ง Response กลับเป็น JSON
 """
-
+from services.llm_service import ask_llm
 from pathlib import Path
 from fastapi import FastAPI
 from services.pdf_service import extract_text
@@ -18,6 +18,9 @@ from services.faiss_service import (
 
 from services.embedding_service import (
     embed_texts
+)
+from services.rag_service import (
+    retrieve_context
 )
 
 app = FastAPI()
@@ -103,7 +106,8 @@ def search_demo():
     chunk_vectors = embed_texts(chunks)
 
     query_vector = embed_texts(
-        ["Python"]
+        ["Python"],
+        prefix="query"
     )
 
     scores = search(
@@ -138,7 +142,8 @@ def faiss_demo():
 
     # แปลงคำถามเป็น Vector
     query_vector = embed_texts(
-        ["Python"]
+        ["Python"],
+        prefix="query"
     )
 
     # หา Top 2 Chunks
@@ -161,4 +166,63 @@ def faiss_demo():
         "results": results,
         "indices": indices.tolist(),
         "distances": distances.tolist()
+    }
+
+@app.get("/rag")
+def rag_demo(query: str):
+
+    pdf_path = (
+        Path(__file__).parent
+        / "data"
+        / "thantam_tumnat_resume.pdf"
+    )
+
+    text = extract_text(pdf_path)
+
+    chunks = chunk_text(text, size=500, overlap=100)
+    
+    context = retrieve_context(
+        query=query,
+        chunks=chunks,
+        top_k=2
+    )
+
+    return {
+        "query": query,
+        "context": context
+    }
+
+@app.get("/ask")
+def ask(query: str):
+
+    pdf_path = (
+        Path(__file__).parent
+        / "data"
+        / "thantam_tumnat_resume.pdf"
+    )
+
+    text = extract_text(
+        pdf_path
+    )
+
+    chunks = chunk_text(
+        text,
+        size=500,
+        overlap=100
+    )
+
+    context = retrieve_context(
+        query=query,
+        chunks=chunks,
+        top_k=2
+    )
+
+    answer = ask_llm(
+        query,
+        "\n\n".join(context)
+    )
+
+    return {
+        "context": context,
+        "answer": answer
     }
