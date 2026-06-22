@@ -31,3 +31,29 @@ def read_pdf():
     return {
         "content": text
     }
+
+@app.get("/chunks")
+def chunks():
+
+    doc = fitz.open("thantam_tumnat_resume.pdf")
+
+    text = ""
+
+    for page in doc:
+        text += page.get_text()
+
+    chunks = chunk_text(text)
+
+    return {
+        "chunk_count": len(chunks),
+        "chunks": chunks
+    }
+
+def chunk_text(text, size=500):
+
+    chunks = []
+
+    for i in range(0, len(text), size):
+        chunks.append(text[i:i+size])
+
+    return chunks
