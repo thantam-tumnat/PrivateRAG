@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# C#
+bin/
+obj/
+
+# VS Code
+.vscode/
+
+# Models
+models/
+
+# Database
+*.db
