@@ -36,6 +36,12 @@ def build_index():
         / "thantam_tumnat_resume.pdf"
     )
 
+    # กันไฟล์หาย: ถ้าไม่มีไฟล์ บอกชัด ๆ แทนที่จะ error งง ๆ ข้างใน fitz
+    if not pdf_path.exists():
+        raise FileNotFoundError(
+            f"ไม่พบไฟล์ PDF ที่ {pdf_path}"
+        )
+
     text = extract_text(pdf_path)
 
     _chunks = chunk_text(
@@ -43,6 +49,13 @@ def build_index():
         size=500,
         overlap=100
     )
+
+    # กันเอกสารว่าง: ถ้าอ่านข้อความไม่ได้เลย (เช่น PDF เป็นรูปสแกน)
+    # chunks จะว่าง แล้ว create_index จะพังแบบงง ๆ -> ดักไว้ตรงนี้
+    if not _chunks:
+        raise ValueError(
+            "อ่านข้อความจาก PDF ไม่ได้ (เอกสารว่างหรือเป็นไฟล์รูปภาพ)"
+        )
 
     chunk_vectors = embed_texts(
         _chunks,
@@ -110,11 +123,26 @@ def retrieve_context(
 
 def ask_question(query):
 
+    # กันคำถามว่าง: ถ้าไม่ส่งคำถามมา ไม่ต้องไปค้นหา/ถาม LLM ให้เปลือง
+    if not query or not query.strip():
+        return {
+            "context": [],
+            "answer": "กรุณาพิมพ์คำถาม"
+        }
+
     # ใช้ index ในแรม (ไม่ส่ง chunks)
     context = retrieve_context(
         query=query,
         top_k=2
     )
+
+    # กัน context ว่าง: ถ้าค้นไม่เจอ chunk เลย อย่าส่งเข้า LLM
+    # เพราะมันจะเดาคำตอบมั่ว ๆ (hallucinate) ทั้งที่ไม่มีข้อมูล
+    if not context:
+        return {
+            "context": [],
+            "answer": "ไม่พบข้อมูลที่เกี่ยวข้องในเอกสาร"
+        }
 
     answer = ask_llm(
         query,
