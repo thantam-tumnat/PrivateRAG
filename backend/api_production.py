@@ -15,10 +15,7 @@ async def lifespan(app: FastAPI):
     # build_index() เสร็จถึงจะ yield(เปิดapi)
     yield
   
-
-
 app = FastAPI(lifespan=lifespan)
-
 
 @app.get("/")
 def root():

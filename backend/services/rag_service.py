@@ -9,59 +9,96 @@ RAG Service
 """
 
 from pathlib import Path
-
-from services.pdf_service import extract_text
 from services.chunk_service import chunk_text
 from services.embedding_service import embed_texts
 from services.faiss_service import create_index, search_index, add_to_index
 from services.llm_service import ask_llm
-
+from services.pdf_service import extract_text as extract_pdf
+from services.docx_service import extract_text as extract_docx
 
 # เก็บ index + chunks ไว้ในแรม
 # build ครั้งเดียวตอน startup แล้วใช้ซ้ำทุก request
 _index = None
 _chunks = [] 
 
-# สร้าง FAISS index เก็บไว้ในแรม
-def build_index():
-    """
-    โหลด PDF -> chunk -> embed -> สร้าง FAISS index
-    เรียกครั้งเดียวตอน server เริ่ม แล้วเก็บผลไว้ในแรม
-    """
+# นามสกุลไฟล์ที่รองรับ
+SUPPORTED = {".pdf", ".docx"}
+
+
+# อ่านไฟล์ 1 ไฟล์ (เลือกตัวอ่านตามนามสกุล) -> chunk -> embed -> เติมเข้า index
+# ใช้ร่วมกันทั้ง build_index (วนทั้ง folder) และ add_document (ไฟล์เดียว)
+def _add_file(file_path):
     global _index, _chunks
 
-    pdf_path = (
-        Path(__file__).parent.parent
-        / "data"
-        / "thantam_tumnat_resume.pdf"
-    )
+    file_path = Path(file_path)
+    suffix = file_path.suffix.lower()
 
-    # กรณีไฟล์ไม่มีไฟล์ 
-    if not pdf_path.exists():
-        raise FileNotFoundError(
-            f"ไม่พบไฟล์ PDF ที่ {pdf_path}"
+    # เลือกตัวอ่านตามนามสกุล
+    if suffix == ".pdf":
+        text = extract_pdf(file_path)
+    elif suffix == ".docx":
+        text = extract_docx(file_path)
+    else:
+        raise ValueError(
+            f"ยังไม่รองรับไฟล์นามสกุล {suffix}"
         )
 
-    text = extract_text(pdf_path)
-
-    _chunks = chunk_text(
+    new_chunks = chunk_text(
         text,
         size=500,
         overlap=100
     )
 
-    # กรณีเอกสารว่าง
-    if not _chunks:
+    # กรณีอ่านข้อความไม่ได้ (เอกสารว่าง/ไฟล์สแกน)
+    if not new_chunks:
         raise ValueError(
-            "อ่านข้อความจาก PDF ไม่ได้ (เอกสารว่างหรือเป็นไฟล์รูปภาพ)"
+            "อ่านข้อความจากไฟล์ไม่ได้ (เอกสารว่างหรือเป็นไฟล์รูปภาพ)"
         )
 
-    chunk_vectors = embed_texts(
-        _chunks,
+    vectors = embed_texts(
+        new_chunks,
         prefix="passage"
     )
 
-    _index = create_index(chunk_vectors)
+    if _index is None:
+        _index = create_index(vectors)   # ยังไม่มี index -> สร้างใหม่
+    else:
+        add_to_index(_index, vectors)    # มีแล้ว -> เติมเข้าของเดิม
+
+    _chunks.extend(new_chunks)
+
+    return len(new_chunks)
+
+
+# สแกนทุกไฟล์ที่รองรับใน data/ -> เติมเข้า index
+# เรียกครั้งเดียวตอน server เริ่ม
+def build_index():
+
+    data_dir = Path(__file__).parent.parent / "data"
+
+    # หาทุกไฟล์ที่นามสกุลรองรับในโฟลเดอร์ data
+    files = [
+        f for f in data_dir.iterdir()
+        if f.suffix.lower() in SUPPORTED
+    ]
+
+    if not files:
+        raise FileNotFoundError(
+            f"ไม่พบไฟล์ที่รองรับใน {data_dir}"
+        )
+
+    for f in files:
+        try:
+            _add_file(f)
+        except ValueError:
+            # ไฟล์ไหนอ่านไม่ได้ = ข้าม
+            continue
+
+    # ถ้าทุกไฟล์อ่านไม่ได้เลย -> index ว่าง เตือนไว้
+    if not _chunks:
+        raise ValueError(
+            "อ่านไฟล์ใน data/ ไม่ได้สักไฟล์"
+        )
 
     # ส่งจำนวน chunks กลับไปแสดงตอน startup ว่า index พร้อมแล้ว
     return len(_chunks)
@@ -122,7 +159,7 @@ def retrieve_context(
 
 def ask_question(query):
 
-    # กันคำถามว่าง: ถ้าไม่ส่งคำถามมา ไม่ต้องไปค้นหา/ถาม LLM ให้เปลือง
+    # กรณีส่ง blank text มา
     if not query or not query.strip():
         return {
             "context": [],
@@ -153,34 +190,6 @@ def ask_question(query):
         "answer": answer
     }
 
-
-# อ่าน PDF ใหม่ 1 ไฟล์ -> chunk -> embed -> เติมเข้า index ในแรม
-def add_document(pdf_path):
-    global _index, _chunks
-
-    text = extract_text(pdf_path)
-
-    new_chunks = chunk_text(
-        text,
-        size=500,
-        overlap=100
-    )
-
-    if not new_chunks:
-        raise ValueError(
-            "อ่านข้อความจาก PDF ไม่ได้ (เอกสารว่างหรือเป็นไฟล์รูปภาพ)"
-        )
-
-    vectors = embed_texts(
-        new_chunks,
-        prefix="passage"
-    )
-
-    if _index is None:
-        _index = create_index(vectors)   # ยังไม่มี index -> สร้างใหม่
-    else:
-        add_to_index(_index, vectors)    # มีแล้ว -> เติมเข้าของเดิม
-
-    _chunks.extend(new_chunks)
-
-    return len(new_chunks)
+# อัปโหลดไฟล์ใหม่ 1 ไฟล์ -> เติมเข้า index (ใช้ logic เดียวกับตอน startup)
+def add_document(file_path):
+    return _add_file(file_path)
