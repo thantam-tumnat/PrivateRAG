@@ -50,9 +50,22 @@ def search_index(
     # ค้นหา Top-K คือ
     # เทียบ Query Vector กับ Vector ใน Index เพื่อหาค่า Distance ที่ใกล้เคียงที่สุด 
     # และคืนค่า Distance กับ Indices ของ Vector ทั้งหมดที่ใกล้เคียงที่สุด
+
     distances, indices = index.search(
         query_vector,
         k
     )
     
     return distances, indices
+
+# เติม vector ใหม่เข้า index ที่มีอยู่แล้ว (ใช้ตอนอัปโหลดไฟล์เพิ่ม)
+def add_to_index(index, vectors):
+
+    vectors = np.array(
+        vectors,
+        dtype="float32"
+    )
+
+    index.add(vectors)
+
+    return index

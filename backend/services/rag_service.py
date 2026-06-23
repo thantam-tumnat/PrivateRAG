@@ -13,14 +13,14 @@ from pathlib import Path
 from services.pdf_service import extract_text
 from services.chunk_service import chunk_text
 from services.embedding_service import embed_texts
-from services.faiss_service import create_index, search_index
+from services.faiss_service import create_index, search_index, add_to_index
 from services.llm_service import ask_llm
 
 
 # เก็บ index + chunks ไว้ในแรม
 # build ครั้งเดียวตอน startup แล้วใช้ซ้ำทุก request
 _index = None
-_chunks = None
+_chunks = [] 
 
 # สร้าง FAISS index เก็บไว้ในแรม
 def build_index():
@@ -36,7 +36,7 @@ def build_index():
         / "thantam_tumnat_resume.pdf"
     )
 
-    # กันไฟล์หาย: ถ้าไม่มีไฟล์ บอกชัด ๆ แทนที่จะ error งง ๆ ข้างใน fitz
+    # กรณีไฟล์ไม่มีไฟล์ 
     if not pdf_path.exists():
         raise FileNotFoundError(
             f"ไม่พบไฟล์ PDF ที่ {pdf_path}"
@@ -50,8 +50,7 @@ def build_index():
         overlap=100
     )
 
-    # กันเอกสารว่าง: ถ้าอ่านข้อความไม่ได้เลย (เช่น PDF เป็นรูปสแกน)
-    # chunks จะว่าง แล้ว create_index จะพังแบบงง ๆ -> ดักไว้ตรงนี้
+    # กรณีเอกสารว่าง
     if not _chunks:
         raise ValueError(
             "อ่านข้อความจาก PDF ไม่ได้ (เอกสารว่างหรือเป็นไฟล์รูปภาพ)"
@@ -153,3 +152,35 @@ def ask_question(query):
         "context": context,
         "answer": answer
     }
+
+
+# อ่าน PDF ใหม่ 1 ไฟล์ -> chunk -> embed -> เติมเข้า index ในแรม
+def add_document(pdf_path):
+    global _index, _chunks
+
+    text = extract_text(pdf_path)
+
+    new_chunks = chunk_text(
+        text,
+        size=500,
+        overlap=100
+    )
+
+    if not new_chunks:
+        raise ValueError(
+            "อ่านข้อความจาก PDF ไม่ได้ (เอกสารว่างหรือเป็นไฟล์รูปภาพ)"
+        )
+
+    vectors = embed_texts(
+        new_chunks,
+        prefix="passage"
+    )
+
+    if _index is None:
+        _index = create_index(vectors)   # ยังไม่มี index -> สร้างใหม่
+    else:
+        add_to_index(_index, vectors)    # มีแล้ว -> เติมเข้าของเดิม
+
+    _chunks.extend(new_chunks)
+
+    return len(new_chunks)
